@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-class SGDRegression():
+class SGDRegressor():
     def __init__(self, loss='squared_error', penalty=None, alpha=1e-4, fit_intercept=True, max_iter=1000, tol=1e-3,
                  sample_size=.3, epsilon=0.1, random_state=None, learning_rate='invscaling', eta0=.01, power_t=.25):
         self.weights = None
