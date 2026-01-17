@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 class SGDRegressor():
-    def __init__(self, loss='squared_error', penalty=None, alpha=1e-4, fit_intercept=True, max_iter=1000, tol=1e-3,
+    def __init__(self, loss='squared_error', penalty=None, alpha=1e-4, l1_ratio=0.15, fit_intercept=True, max_iter=1000, tol=1e-3,
                  sample_size=.3, epsilon=0.1, random_state=None, learning_rate='invscaling', eta0=.01, power_t=.25):
         self.weights = None
         self.intercept = None
@@ -10,6 +10,7 @@ class SGDRegressor():
         self.loss_fn = loss
         self.reg = penalty
         self.alpha = alpha
+        self.l1_ratio = l1_ratio
         self.fit_intercept = fit_intercept
         self.epochs = max_iter
         self.tol = tol
@@ -36,26 +37,47 @@ class SGDRegressor():
     def loss(self, x, y):
         y_pred = self(x)
         self.resid = y_pred-y 
-        if self.loss_fn == 'squared_error':
-            self.mse = (self.resid**2).mean() 
-        elif self.loss_fn == 'huber':
+        def _squared_error_loss(): return (self.resid**2).mean() 
+        def _huber_loss():
             self.resid_idx_sm = self.resid <= self.epsi
             self.resid_idx_gt =  self.resid > self.epsi
-            self.mse = ((self.resid[self.resid_idx_sm]**2).sum() + 
+            return ((self.resid[self.resid_idx_sm]**2).sum() + 
                         (self.epsi*np.abs(self.resid[self.resid_idx_gt])).sum())/len(self.idx) - self.epsi**2
-        if self.reg == 'l1' : self.mse += .5 * self.alpha * np.abs(self.weights).sum()
+        def _epsilon_insensitive_loss(): 
+            return np.where(np.abs(self.resid)-self.epsi>0, np.abs(self.resid)-self.epsi, 0).mean()
+        def _squared_epsilon_insensitive_loss():
+            return (np.where(np.abs(self.resid)-self.epsi>0, self.resid-self.epsi, 0)**2).mean()
+        if self.loss_fn == 'squared_error': self.mse = _squared_error_loss() 
+        elif self.loss_fn == 'huber': self.mse = _huber_loss() 
+        elif self.loss_fn == 'epsilon_insensitive' : self.mse = _epsilon_insensitive_loss()
+        elif self.loss_fn == 'squared_epsilon_insensitive' : self.mse = _squared_epsilon_insensitive_loss()
+        if self.reg == 'l1' : self.mse += self.alpha * np.abs(self.weights).sum()
         elif self.reg == 'l2' : self.mse += .5 * self.alpha * np.dot(self.weights.T, self.weights)[0][0]
+        elif self.reg == 'elasticnet' :
+            self.mse += self.alpha*((1-self.l1_ratio)*.5*np.dot(self.weights.T, self.weights)[0][0] + 
+                                    self.l1_ratio*np.abs(self.weights).sum())
         return self.mse
     
-    def backward(self, x):
-        if self.loss_fn == 'squared_error': 
-         weights_grad = (self.resid*x.T).mean(axis=1).reshape(-1,1)
-        elif self.loss_fn == 'huber':
+    def _backward(self, x):
+        def _squared_error_grad(x):
+            return (self.resid*x.T).mean(axis=1).reshape(-1,1)
+        def _huber_grad(x):
             weights_grad_first = (self.resid*x.T)[:,*self.resid_idx_sm].sum(axis=1)
             weights_grad_second = (self.epsi*np.sign(self.resid)*x.T)[:,*self.resid_idx_gt].sum(axis=1)
-            weights_grad = ((weights_grad_first + weights_grad_second)/len(self.idx)).reshape(-1,1)
+            return ((weights_grad_first + weights_grad_second)/len(self.idx)).reshape(-1,1)
+        def _epsilon_insensitive_grad(x):
+            return (np.where(np.abs(self.resid)>self.epsi, np.sign(self.resid), 0)*x.T).mean(axis=1).reshape(-1,1)
+        def _squared_epsilon_insensitive_grad(x):
+            return (np.where(np.abs(self.resid)>self.epsi, self.resid, 0)*x.T).mean(axis=1).reshape(-1,1)
+
+        if self.loss_fn == 'squared_error': weights_grad = _squared_error_grad(x)
+        elif self.loss_fn == 'huber': weights_grad = _huber_grad(x)
+        elif self.loss_fn == 'epsilon_insensitive' : weights_grad = _epsilon_insensitive_grad(x)
+        elif self.loss_fn == 'squared_epsilon_insensitive' : weights_grad = _squared_epsilon_insensitive_grad(x)
         if self.reg == 'l1' : weights_grad += self.alpha * np.sign(self.weights)
         elif self.reg == 'l2': weights_grad += self.alpha * self.weights 
+        elif self.reg == 'elasticnet' : 
+            weights_grad += self.alpha*((1-self.l1_ratio)*self.weights + self.l1_ratio * np.sign(self.weights))
         self.weights -= self.eta * weights_grad
         if self.fit_intercept : 
             bias_grad = self.resid.mean()
@@ -79,4 +101,4 @@ class SGDRegressor():
                 elif this_loss>prev_loss : self.eta /= 5 
             if self.tol is not None and abs(this_loss-prev_loss) < self.tol: break
             else : prev_loss = this_loss
-            self.backward(x[self.idx,:])
+            self._backward(x[self.idx,:])
