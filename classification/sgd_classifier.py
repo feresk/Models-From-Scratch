@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 from losses import Loss
 
-class SGDRegressor():
-    def __init__(self, loss='squared_error', penalty=None, alpha=1e-4, l1_ratio=.15, fit_intercept=True, max_iter=1000, tol=1e-3,
+class SGDClassifier():
+    def __init__(self, loss='hinge', penalty=None, alpha=1e-4, l1_ratio=.15, fit_intercept=True, max_iter=1000, tol=1e-3,
                  sample_size=.3, epsilon=0.1, random_state=None, learning_rate='optimal', eta0=.01, power_t=.25):
         self.W = None
         self.b = None
@@ -24,12 +24,14 @@ class SGDRegressor():
         self.power_t = power_t
 
     def __call__(self, x): return x @ self.W + self.b
+
+    def predict(self, x, thresh=.5): return np.where(self(x)>thresh, 1, 0).ravel()
     
     def _random_generator(self):
         if self.rd is not None : self.rng = np.random.RandomState(self.rd)
         else : self.rng = np.random
 
-    def _set_params(self, x):
+    def _set_params(self,x):
         self._random_generator()
         self.params_set = True
         self.W = self.rng.normal(0, .5, size=(x.shape[1], 1))
@@ -59,4 +61,4 @@ class SGDRegressor():
             self._update_eta(t, prev_loss, this_loss)
             if self.tol is not None and abs(this_loss-prev_loss)<self.tol : break
             prev_loss = this_loss
-            self.loss._backward(x[self.idx,:])
+            self.loss._backward(x[self.idx,:],y[self.idx,:])
